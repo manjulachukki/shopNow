@@ -74,6 +74,7 @@ pipeline {
             ensure_repo ${BACKEND_REPO}
             ensure_repo ${FRONTEND_REPO}
           '''
+        }
       }
     }
 
