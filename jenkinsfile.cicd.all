@@ -3,6 +3,7 @@ pipeline {
 
   parameters {
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag override. Leave empty to use current git short SHA.')
+    booleanParam(name: 'RUN_DEPLOY', defaultValue: true, description: 'If false, build and push images only (skip Helm deploy).')
   }
 
   environment {
@@ -40,10 +41,39 @@ pipeline {
     stage('Verify Build/Deploy Tools') {
       steps {
         sh '''
+          set -e
           docker --version
           aws --version
           command -v helm >/dev/null 2>&1 || echo "helm not found on agent; will install in workspace before deploy"
           command -v kubectl >/dev/null 2>&1 || echo "kubectl not found on agent; will install in workspace before deploy"
+          command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || echo "warning: neither curl nor wget found; deploy CLI bootstrap may fail"
+          command -v tar >/dev/null 2>&1 || echo "warning: tar not found; helm bootstrap may fail"
+        '''
+      }
+    }
+
+    stage('Prepare ECR') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+          sh '''
+            set -e
+
+            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+            ensure_repo() {
+              REPO="$1"
+              if ! aws ecr describe-repositories --repository-names "${REPO}" --region ${AWS_REGION} >/dev/null 2>&1; then
+                aws ecr create-repository --repository-name "${REPO}" --region ${AWS_REGION} >/dev/null
+                echo "Created ECR repository: ${REPO}"
+              else
+                echo "ECR repository exists: ${REPO}"
+              fi
+            }
+
+            ensure_repo ${ADMIN_REPO}
+            ensure_repo ${BACKEND_REPO}
+            ensure_repo ${FRONTEND_REPO}
+          '''
         '''
       }
     }
@@ -101,6 +131,9 @@ pipeline {
     }
 
     stage('Prepare Deploy CLIs') {
+      when {
+        expression { return params.RUN_DEPLOY }
+      }
       steps {
         sh '''
           set -e
@@ -108,27 +141,53 @@ pipeline {
           mkdir -p "${TOOLS_DIR}"
           export PATH="${TOOLS_DIR}:$PATH"
 
+          dl_to_file() {
+            URL="$1"
+            OUT="$2"
+            if command -v curl >/dev/null 2>&1; then
+              curl -fsSL -o "${OUT}" "${URL}"
+            elif command -v wget >/dev/null 2>&1; then
+              wget -qO "${OUT}" "${URL}"
+            else
+              echo "Neither curl nor wget is available on this Jenkins agent"
+              exit 1
+            fi
+          }
+
+          if ! command -v tar >/dev/null 2>&1; then
+            echo "tar is required to install helm on this Jenkins agent"
+            exit 1
+          fi
+
           if ! command -v helm >/dev/null 2>&1; then
             HELM_VERSION="v3.16.4"
-            curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz
+            dl_to_file "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" helm.tgz
+            tar -xzf helm.tgz
             mv linux-amd64/helm "${TOOLS_DIR}/helm"
             chmod +x "${TOOLS_DIR}/helm"
-            rm -rf linux-amd64
+            rm -rf linux-amd64 helm.tgz
           fi
 
           if ! command -v kubectl >/dev/null 2>&1; then
-            K8S_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
-            curl -fsSL -o "${TOOLS_DIR}/kubectl" "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/amd64/kubectl"
+            if command -v curl >/dev/null 2>&1; then
+              K8S_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
+            else
+              K8S_VERSION="$(wget -qO- https://dl.k8s.io/release/stable.txt)"
+            fi
+            dl_to_file "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/amd64/kubectl" "${TOOLS_DIR}/kubectl"
             chmod +x "${TOOLS_DIR}/kubectl"
           fi
 
           helm version --short
-          kubectl version --client --short
+          kubectl version --client || true
         '''
       }
     }
 
     stage('Deploy Backend') {
+      when {
+        expression { return params.RUN_DEPLOY }
+      }
       steps {
         withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
           sh '''
@@ -139,13 +198,16 @@ pipeline {
               --set image.repository=${ECR_REGISTRY}/${BACKEND_REPO} \
               --set image.tag=${IMAGE_TAG_EFFECTIVE} \
               --wait --timeout 5m
-            kubectl rollout status deployment/shopnow-backend -n ${NAMESPACE} --timeout=3m
+            kubectl rollout status deployment -l app.kubernetes.io/instance=shopnow-backend -n ${NAMESPACE} --timeout=3m
           '''
         }
       }
     }
 
     stage('Deploy Frontend & Admin') {
+      when {
+        expression { return params.RUN_DEPLOY }
+      }
       parallel {
         stage('Deploy Frontend') {
           steps {
@@ -158,7 +220,7 @@ pipeline {
                   --set image.repository=${ECR_REGISTRY}/${FRONTEND_REPO} \
                   --set image.tag=${IMAGE_TAG_EFFECTIVE} \
                   --wait --timeout 5m
-                kubectl rollout status deployment/shopnow-frontend -n ${NAMESPACE} --timeout=3m
+                kubectl rollout status deployment -l app.kubernetes.io/instance=shopnow-frontend -n ${NAMESPACE} --timeout=3m
               '''
             }
           }
@@ -175,7 +237,7 @@ pipeline {
                   --set image.repository=${ECR_REGISTRY}/${ADMIN_REPO} \
                   --set image.tag=${IMAGE_TAG_EFFECTIVE} \
                   --wait --timeout 5m
-                kubectl rollout status deployment/shopnow-admin -n ${NAMESPACE} --timeout=3m
+                kubectl rollout status deployment -l app.kubernetes.io/instance=shopnow-admin -n ${NAMESPACE} --timeout=3m
               '''
             }
           }
