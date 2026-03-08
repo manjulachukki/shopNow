@@ -5,6 +5,7 @@ pipeline {
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag override. Leave empty to use current git short SHA.')
     booleanParam(name: 'RUN_DEPLOY', defaultValue: true, description: 'If false, build and push images only (skip Helm deploy).')
     booleanParam(name: 'ENSURE_ECR_REPOS', defaultValue: false, description: 'If true, pipeline attempts to describe/create ECR repositories before build.')
+    booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'If false, only builds images locally without pushing to ECR.')
   }
 
   environment {
@@ -90,18 +91,53 @@ pipeline {
       }
     }
 
+    stage('Authenticate ECR') {
+      when {
+        expression { return params.PUSH_IMAGES }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+          sh '''
+            set -euxo pipefail
+            export DOCKER_CONFIG="${WORKSPACE}/.docker"
+            mkdir -p "${DOCKER_CONFIG}"
+
+            # Validate active AWS identity so permission issues are obvious in logs.
+            aws sts get-caller-identity --region ${AWS_REGION}
+
+            # Retry ECR auth to handle intermittent network or API throttling.
+            for i in 1 2 3; do
+              if aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}; then
+                echo "ECR login succeeded"
+                exit 0
+              fi
+              echo "ECR login attempt ${i} failed; retrying in 5s..."
+              sleep 5
+            done
+
+            echo "ECR login failed after retries"
+            exit 1
+          '''
+        }
+      }
+    }
+
     stage('Build & Push Images') {
       parallel {
         stage('Build Admin') {
           steps {
             dir('admin') {
-              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+              retry(2) {
                 sh '''
-                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                  docker build -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
-                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE}
-                  docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
-                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                  set -euxo pipefail
+                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
+                  docker build --pull -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
+
+                  if [ "${PUSH_IMAGES}" = "true" ]; then
+                    docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE}
+                    docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                    docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                  fi
                 '''
               }
             }
@@ -111,13 +147,17 @@ pipeline {
         stage('Build Backend') {
           steps {
             dir('backend') {
-              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+              retry(2) {
                 sh '''
-                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                  docker build -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
-                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE}
-                  docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
-                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                  set -euxo pipefail
+                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
+                  docker build --pull -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+
+                  if [ "${PUSH_IMAGES}" = "true" ]; then
+                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                    docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                  fi
                 '''
               }
             }
@@ -127,13 +167,17 @@ pipeline {
         stage('Build Frontend') {
           steps {
             dir('frontend') {
-              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+              retry(2) {
                 sh '''
-                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                  docker build -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
-                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE}
-                  docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
-                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                  set -euxo pipefail
+                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
+                  docker build --pull -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+
+                  if [ "${PUSH_IMAGES}" = "true" ]; then
+                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                    docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                  fi
                 '''
               }
             }
