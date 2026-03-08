@@ -1,0 +1,105 @@
+pipeline {
+  agent any
+
+  environment {
+    AWS_REGION = 'us-east-1'
+    AWS_ACCOUNT_ID = '975050024946'
+    AWS_CREDENTIALS = 'aws-jenkins-cred'
+    ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    ADMIN_REPO = 'manjula-shopnow-admin'
+    BACKEND_REPO = 'manjula-shopnow-backend'
+    FRONTEND_REPO = 'manjula-shopnow-frontend'
+    IMAGE_TAG = ''
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Set Image Tag') {
+      steps {
+        script {
+          IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          echo "Using image tag: ${IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('Verify Build Tools') {
+      steps {
+        sh '''
+          docker --version
+          aws --version
+        '''
+      }
+    }
+
+    stage('Build & Push Images') {
+      parallel {
+        stage('Admin') {
+          steps {
+            dir('admin') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG} .
+                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG}
+                  docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+
+        stage('Backend') {
+          steps {
+            dir('backend') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG} .
+                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG}
+                  docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+
+        stage('Frontend') {
+          steps {
+            dir('frontend') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG} .
+                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG}
+                  docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Publish Image Tags') {
+      steps {
+        writeFile file: 'image-tags.txt', text: """admin=${IMAGE_TAG}\nbackend=${IMAGE_TAG}\nfrontend=${IMAGE_TAG}\n"""
+        archiveArtifacts artifacts: 'image-tags.txt', fingerprint: true
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs()
+    }
+  }
+}

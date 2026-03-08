@@ -4,11 +4,12 @@ pipeline {
     string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Image tag to deploy')
   }
   environment {
-    REGISTRY = "your.registry.example.com/shopnow"
+    ECR_REGISTRY = "975050024946.dkr.ecr.us-east-1.amazonaws.com"
+    IMAGE_REPO = 'manjula-shopnow-frontend'
     KUBECONFIG_FILE = 'kubeconfig-credential' // Jenkins file credential containing kubeconfig
     RELEASE_NAME = 'shopnow-frontend'
     NAMESPACE = 'shopnow-demo'
-    CHART_PATH = 'charts/frontend'
+    CHART_PATH = 'kubernetes/helm/charts/frontend'
   }
   stages {
     stage('Checkout') { steps { checkout scm } }
@@ -19,10 +20,10 @@ pipeline {
             export KUBECONFIG=$KUBECONFIG
             helm upgrade --install ${RELEASE_NAME} ${CHART_PATH} \
               --namespace ${NAMESPACE} --create-namespace \
-              --set image.repository=${REGISTRY}-frontend \
+              --set image.repository=${ECR_REGISTRY}/${IMAGE_REPO} \
               --set image.tag=${IMAGE_TAG} \
               --wait --timeout 5m
-            kubectl rollout status deployment/${RELEASE_NAME}-frontend -n ${NAMESPACE} --timeout=3m
+            kubectl rollout status deployment/${RELEASE_NAME} -n ${NAMESPACE} --timeout=3m
           '''
         }
       }

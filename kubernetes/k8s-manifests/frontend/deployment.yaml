@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: 975050024946.dkr.ecr.ap-southeast-1.amazonaws.com/shopnow/frontend:latest #<account-id>.dkr.ecr.<region>.amazonaws.com/shopnow/frontend:latest
+        image: 975050024946.dkr.ecr.us-east-1.amazonaws.com/manjula-shopnow-frontend:latest #<account-id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
         ports:
         - containerPort: 80
         resources:

@@ -2,19 +2,22 @@
 ############################
 # Stage 1: Build
 ############################
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-RUN apk add --no-cache python3 make g++ || true
+# Allow overriding npm TLS strictness in environments with corporate SSL interception.
+ARG NPM_CONFIG_STRICT_SSL=false
+ENV NPM_CONFIG_STRICT_SSL=${NPM_CONFIG_STRICT_SSL}
 
 COPY package*.json ./
-RUN npm ci --no-audit --prefer-offline
+RUN npm config set strict-ssl ${NPM_CONFIG_STRICT_SSL} \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm ci --no-audit --prefer-offline \
+ && test -x node_modules/.bin/react-scripts
 
 COPY . .
-# Build argument for dynamic user path
-ARG USER_NAME=aryan
-ENV PUBLIC_URL=/${USER_NAME}-admin
-ENV REACT_APP_API_BASE_URL=/${USER_NAME}-admin/api
 RUN npm run build
 
 ############################

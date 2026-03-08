@@ -6,7 +6,13 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci --only=production --no-audit --prefer-offline
+RUN npm config set strict-ssl false \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-factor 2 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm ci --omit=dev --no-audit --prefer-offline \
+ && node -e "require.resolve('express')"
 
 # Copy app source
 COPY . .
@@ -22,7 +28,7 @@ ENV PORT=5000
 EXPOSE 5000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:${PORT}/health || exit 1
+  CMD wget -qO- http://127.0.0.1:${PORT}/api/health || exit 1
 
 CMD ["node", "server.js"]
 

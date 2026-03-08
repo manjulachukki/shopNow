@@ -145,7 +145,7 @@ aws ecr get-login-password --region <region> | docker login --username AWS --pas
 
 3.4. **Update ArgoCD Repository URL**:
   - In `kubernetes/argocd/umbrella-application.yaml` and all `kubernetes/argocd/apps/*.yaml` files:
-  - Change `repoURL: 'https://github.com/aryanm12/shopNow'` 
+  - Change `repoURL: 'https://github.com/manjulachukki/shopNow'` 
   - To `repoURL: 'https://github.com/<your-github-username>/<your-repo-name>'`
 
 

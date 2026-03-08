@@ -1,8 +1,11 @@
 pipeline {
   agent any
   environment {
-    REGISTRY = "your.registry.example.com/shopnow"
-    DOCKER_CREDENTIALS = 'docker-reg-cred'
+    AWS_REGION = 'us-east-1'
+    AWS_ACCOUNT_ID = '975050024946'
+    AWS_CREDENTIALS = 'aws-jenkins-cred'
+    ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    IMAGE_REPO = 'manjula-shopnow-backend'
     IMAGE_TAG = ''
   }
   stages {
@@ -13,14 +16,24 @@ pipeline {
         echo "IMAGE_TAG=${IMAGE_TAG}"
       }
     }
+    stage('Verify Build Tools') {
+      steps {
+        sh '''
+          docker --version
+          aws --version
+        '''
+      }
+    }
     stage('Build & Push') {
       steps {
         dir('backend') {
-          withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
             sh '''
-              echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin your.registry.example.com
-              docker build -t ${REGISTRY}-backend:${IMAGE_TAG} .
-              docker push ${REGISTRY}-backend:${IMAGE_TAG}
+              aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+              docker build -t ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} .
+              docker push ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}
+              docker tag ${ECR_REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_REPO}:latest
+              docker push ${ECR_REGISTRY}/${IMAGE_REPO}:latest
             '''
           }
         }

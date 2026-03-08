@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: 975050024946.dkr.ecr.ap-southeast-1.amazonaws.com/shopnow/admin
+  repository: 975050024946.dkr.ecr.us-east-1.amazonaws.com/manjula-shopnow-admin
   tag: latest
   pullPolicy: IfNotPresent
 

@@ -8,12 +8,17 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/aryanm12/shopNow'
+    repoURL: 'https://github.com/manjulachukki/shopNow'
     targetRevision: HEAD
     path: kubernetes/helm/charts/admin
     helm:
       valueFiles: []
       releaseName: admin
+      parameters:
+      - name: image.repository
+        value: 975050024946.dkr.ecr.us-east-1.amazonaws.com/manjula-shopnow-admin
+      - name: image.tag
+        value: latest
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: shopnow-demo

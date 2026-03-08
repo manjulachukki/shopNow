@@ -6,12 +6,21 @@ FROM node:18-alpine AS builder
 LABEL org.opencontainers.image.description="shopNow frontend - build stage"
 WORKDIR /app
 
+# Allow npm to work in corporate SSL interception environments.
+ARG NPM_CONFIG_STRICT_SSL=false
+ENV NPM_CONFIG_STRICT_SSL=${NPM_CONFIG_STRICT_SSL}
+
 # Install build deps if needed
 RUN apk add --no-cache python3 make g++ || true
 
 # Copy package files (leverage cache)
 COPY package*.json ./
-RUN npm ci --no-audit --prefer-offline
+RUN npm config set strict-ssl ${NPM_CONFIG_STRICT_SSL} \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm ci --no-audit --prefer-offline \
+ && test -x node_modules/.bin/react-scripts
 
 # Copy source and build
 COPY . .
