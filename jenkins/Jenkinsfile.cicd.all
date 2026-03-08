@@ -4,6 +4,7 @@ pipeline {
   parameters {
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag override. Leave empty to use current git short SHA.')
     booleanParam(name: 'RUN_DEPLOY', defaultValue: true, description: 'If false, build and push images only (skip Helm deploy).')
+    booleanParam(name: 'ENSURE_ECR_REPOS', defaultValue: false, description: 'If true, pipeline attempts to describe/create ECR repositories before build.')
   }
 
   environment {
@@ -53,6 +54,9 @@ pipeline {
     }
 
     stage('Prepare ECR') {
+      when {
+        expression { return params.ENSURE_ECR_REPOS }
+      }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
           sh '''
@@ -62,12 +66,20 @@ pipeline {
 
             ensure_repo() {
               REPO="$1"
-              if ! aws ecr describe-repositories --repository-names "${REPO}" --region ${AWS_REGION} >/dev/null 2>&1; then
-                aws ecr create-repository --repository-name "${REPO}" --region ${AWS_REGION} >/dev/null
-                echo "Created ECR repository: ${REPO}"
-              else
+              if aws ecr describe-repositories --repository-names "${REPO}" --region ${AWS_REGION} >/dev/null 2>&1; then
                 echo "ECR repository exists: ${REPO}"
+                return 0
               fi
+
+              # Some Jenkins roles can push to existing repos but cannot describe/create repos.
+              if aws ecr create-repository --repository-name "${REPO}" --region ${AWS_REGION} >/dev/null 2>&1; then
+                echo "Created ECR repository: ${REPO}"
+                return 0
+              fi
+
+              echo "WARN: Could not verify/create ECR repository ${REPO}."
+              echo "WARN: Continuing; image push stage will fail only if the repo truly does not exist."
+              return 0
             }
 
             ensure_repo ${ADMIN_REPO}
