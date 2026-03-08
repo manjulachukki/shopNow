@@ -42,8 +42,8 @@ pipeline {
         sh '''
           docker --version
           aws --version
-          helm version --short
-          kubectl version --client --short
+          command -v helm >/dev/null 2>&1 || echo "helm not found on agent; will install in workspace before deploy"
+          command -v kubectl >/dev/null 2>&1 || echo "kubectl not found on agent; will install in workspace before deploy"
         '''
       }
     }
@@ -100,10 +100,39 @@ pipeline {
       }
     }
 
+    stage('Prepare Deploy CLIs') {
+      steps {
+        sh '''
+          set -e
+          TOOLS_DIR="${WORKSPACE}/.ci-tools/bin"
+          mkdir -p "${TOOLS_DIR}"
+          export PATH="${TOOLS_DIR}:$PATH"
+
+          if ! command -v helm >/dev/null 2>&1; then
+            HELM_VERSION="v3.16.4"
+            curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz
+            mv linux-amd64/helm "${TOOLS_DIR}/helm"
+            chmod +x "${TOOLS_DIR}/helm"
+            rm -rf linux-amd64
+          fi
+
+          if ! command -v kubectl >/dev/null 2>&1; then
+            K8S_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
+            curl -fsSL -o "${TOOLS_DIR}/kubectl" "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/amd64/kubectl"
+            chmod +x "${TOOLS_DIR}/kubectl"
+          fi
+
+          helm version --short
+          kubectl version --client --short
+        '''
+      }
+    }
+
     stage('Deploy Backend') {
       steps {
         withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
           sh '''
+            export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
             export KUBECONFIG=$KUBECONFIG
             helm upgrade --install shopnow-backend kubernetes/helm/charts/backend \
               --namespace ${NAMESPACE} --create-namespace \
@@ -122,6 +151,7 @@ pipeline {
           steps {
             withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
               sh '''
+                export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
                 export KUBECONFIG=$KUBECONFIG
                 helm upgrade --install shopnow-frontend kubernetes/helm/charts/frontend \
                   --namespace ${NAMESPACE} --create-namespace \
@@ -138,6 +168,7 @@ pipeline {
           steps {
             withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
               sh '''
+                export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
                 export KUBECONFIG=$KUBECONFIG
                 helm upgrade --install shopnow-admin kubernetes/helm/charts/admin \
                   --namespace ${NAMESPACE} --create-namespace \
