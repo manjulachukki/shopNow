@@ -1,0 +1,168 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag override. Leave empty to use current git short SHA.')
+  }
+
+  environment {
+    AWS_REGION = 'us-east-1'
+    AWS_ACCOUNT_ID = '975050024946'
+    AWS_CREDENTIALS = 'aws-jenkins-cred'
+    KUBECONFIG_FILE = 'kubeconfig-credential'
+
+    ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    ADMIN_REPO = 'manjula-shopnow-admin'
+    BACKEND_REPO = 'manjula-shopnow-backend'
+    FRONTEND_REPO = 'manjula-shopnow-frontend'
+
+    NAMESPACE = 'shopnow-demo'
+    IMAGE_TAG_EFFECTIVE = ''
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Resolve Image Tag') {
+      steps {
+        script {
+          def gitShort = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          IMAGE_TAG_EFFECTIVE = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : gitShort
+          echo "Using IMAGE_TAG=${IMAGE_TAG_EFFECTIVE}"
+        }
+      }
+    }
+
+    stage('Verify Build/Deploy Tools') {
+      steps {
+        sh '''
+          docker --version
+          aws --version
+          helm version --short
+          kubectl version --client --short
+        '''
+      }
+    }
+
+    stage('Build & Push Images') {
+      parallel {
+        stage('Build Admin') {
+          steps {
+            dir('admin') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
+                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE}
+                  docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+
+        stage('Build Backend') {
+          steps {
+            dir('backend') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                  docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+
+        stage('Build Frontend') {
+          steps {
+            dir('frontend') {
+              withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+                sh '''
+                  aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                  docker build -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                  docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                  docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                '''
+              }
+            }
+          }
+        }
+      }
+    }
+
+    stage('Deploy Backend') {
+      steps {
+        withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+          sh '''
+            export KUBECONFIG=$KUBECONFIG
+            helm upgrade --install shopnow-backend kubernetes/helm/charts/backend \
+              --namespace ${NAMESPACE} --create-namespace \
+              --set image.repository=${ECR_REGISTRY}/${BACKEND_REPO} \
+              --set image.tag=${IMAGE_TAG_EFFECTIVE} \
+              --wait --timeout 5m
+            kubectl rollout status deployment/shopnow-backend -n ${NAMESPACE} --timeout=3m
+          '''
+        }
+      }
+    }
+
+    stage('Deploy Frontend & Admin') {
+      parallel {
+        stage('Deploy Frontend') {
+          steps {
+            withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+              sh '''
+                export KUBECONFIG=$KUBECONFIG
+                helm upgrade --install shopnow-frontend kubernetes/helm/charts/frontend \
+                  --namespace ${NAMESPACE} --create-namespace \
+                  --set image.repository=${ECR_REGISTRY}/${FRONTEND_REPO} \
+                  --set image.tag=${IMAGE_TAG_EFFECTIVE} \
+                  --wait --timeout 5m
+                kubectl rollout status deployment/shopnow-frontend -n ${NAMESPACE} --timeout=3m
+              '''
+            }
+          }
+        }
+
+        stage('Deploy Admin') {
+          steps {
+            withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+              sh '''
+                export KUBECONFIG=$KUBECONFIG
+                helm upgrade --install shopnow-admin kubernetes/helm/charts/admin \
+                  --namespace ${NAMESPACE} --create-namespace \
+                  --set image.repository=${ECR_REGISTRY}/${ADMIN_REPO} \
+                  --set image.tag=${IMAGE_TAG_EFFECTIVE} \
+                  --wait --timeout 5m
+                kubectl rollout status deployment/shopnow-admin -n ${NAMESPACE} --timeout=3m
+              '''
+            }
+          }
+        }
+      }
+    }
+
+    stage('Publish Build Metadata') {
+      steps {
+        writeFile file: 'image-tags.txt', text: """admin=${IMAGE_TAG_EFFECTIVE}\nbackend=${IMAGE_TAG_EFFECTIVE}\nfrontend=${IMAGE_TAG_EFFECTIVE}\n"""
+        archiveArtifacts artifacts: 'image-tags.txt', fingerprint: true
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs()
+    }
+  }
+}
