@@ -6,13 +6,13 @@ pipeline {
     booleanParam(name: 'RUN_DEPLOY', defaultValue: true, description: 'If false, build and push images only (skip Helm deploy).')
     booleanParam(name: 'ENSURE_ECR_REPOS', defaultValue: false, description: 'If true, pipeline attempts to describe/create ECR repositories before build.')
     booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'If false, only builds images locally without pushing to ECR.')
+    string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'aws-jenkins-cred', description: 'Jenkins AWS credentials ID (type: AWS Credentials).')
+    string(name: 'KUBECONFIG_CREDENTIALS_ID', defaultValue: 'kubeconfig-credential', description: 'Jenkins file credential ID for kubeconfig (type: Secret file).')
   }
 
   environment {
     AWS_REGION = 'us-east-1'
     AWS_ACCOUNT_ID = '975050024946'
-    AWS_CREDENTIALS = 'aws-jenkins-cred'
-    KUBECONFIG_FILE = 'kubeconfig-credential'
 
     ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
     ADMIN_REPO = 'manjula-shopnow-admin'
@@ -34,8 +34,25 @@ pipeline {
       steps {
         script {
           def gitShort = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-          IMAGE_TAG_EFFECTIVE = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : gitShort
-          echo "Using IMAGE_TAG=${IMAGE_TAG_EFFECTIVE}"
+          env.IMAGE_TAG_EFFECTIVE = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : gitShort
+          echo "Using IMAGE_TAG=${env.IMAGE_TAG_EFFECTIVE}"
+        }
+      }
+    }
+
+    stage('Validate Pipeline Inputs') {
+      steps {
+        script {
+          if (!params.AWS_CREDENTIALS_ID?.trim()) {
+            error('Parameter AWS_CREDENTIALS_ID is empty. Set it to a valid Jenkins AWS credentials ID.')
+          }
+          if (params.RUN_DEPLOY && !params.KUBECONFIG_CREDENTIALS_ID?.trim()) {
+            error('RUN_DEPLOY=true requires KUBECONFIG_CREDENTIALS_ID to be set to a valid secret file credential ID.')
+          }
+          echo "Using AWS_CREDENTIALS_ID=${params.AWS_CREDENTIALS_ID}"
+          if (params.RUN_DEPLOY) {
+            echo "Using KUBECONFIG_CREDENTIALS_ID=${params.KUBECONFIG_CREDENTIALS_ID}"
+          }
         }
       }
     }
@@ -59,7 +76,7 @@ pipeline {
         expression { return params.ENSURE_ECR_REPOS }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
           sh '''
             set -e
 
@@ -96,7 +113,7 @@ pipeline {
         expression { return params.PUSH_IMAGES }
       }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: AWS_CREDENTIALS]]) {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
           sh '''
             set -euxo pipefail
             export DOCKER_CONFIG="${WORKSPACE}/.docker"
@@ -245,7 +262,7 @@ pipeline {
         expression { return params.RUN_DEPLOY }
       }
       steps {
-        withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+        withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
           sh '''
             export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
             export KUBECONFIG=$KUBECONFIG
@@ -267,7 +284,7 @@ pipeline {
       parallel {
         stage('Deploy Frontend') {
           steps {
-            withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+            withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
               sh '''
                 export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
                 export KUBECONFIG=$KUBECONFIG
@@ -284,7 +301,7 @@ pipeline {
 
         stage('Deploy Admin') {
           steps {
-            withCredentials([file(credentialsId: KUBECONFIG_FILE, variable: 'KUBECONFIG')]) {
+            withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
               sh '''
                 export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
                 export KUBECONFIG=$KUBECONFIG
