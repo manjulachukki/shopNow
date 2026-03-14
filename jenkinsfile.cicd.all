@@ -71,6 +71,7 @@ pipeline {
             echo "aws CLI not found; installing..."
             curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
             python3 -c "import zipfile; zipfile.ZipFile('/tmp/awscliv2.zip').extractall('/tmp/aws-install')"
+            chmod +x /tmp/aws-install/aws/install
             /tmp/aws-install/aws/install --install-dir "${WORKSPACE}/.ci-tools/aws-cli" --bin-dir "${TOOLS_DIR}" --update
             rm -rf /tmp/awscliv2.zip /tmp/aws-install
           fi
