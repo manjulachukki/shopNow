@@ -20,7 +20,6 @@ pipeline {
     FRONTEND_REPO = 'manjula-shopnow-frontend'
 
     NAMESPACE = 'shopnow-demo'
-    IMAGE_TAG_EFFECTIVE = ''
   }
 
   stages {
