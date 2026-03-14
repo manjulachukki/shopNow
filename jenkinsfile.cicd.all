@@ -20,6 +20,10 @@ pipeline {
     FRONTEND_REPO = 'manjula-shopnow-frontend'
 
     NAMESPACE = 'shopnow-demo'
+
+    SNS_TOPIC_BUILDS = "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:shopnow-builds"
+    SNS_TOPIC_DEPLOYS = "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:shopnow-deployments"
+    SNS_TOPIC_ALERTS = "arn:aws:sns:${AWS_REGION}:${AWS_ACCOUNT_ID}:shopnow-alerts"
   }
 
   stages {
@@ -329,6 +333,25 @@ pipeline {
       }
     }
 
+    stage('Notify Deploy Status') {
+      when {
+        expression { return params.RUN_DEPLOY }
+      }
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
+          sh '''#!/bin/bash
+            export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
+            export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
+            aws sns publish \
+              --topic-arn "${SNS_TOPIC_DEPLOYS}" \
+              --subject "DEPLOY SUCCESS: ShopNow #${BUILD_NUMBER}" \
+              --message "Deployment #${BUILD_NUMBER} succeeded.\nTag: ${IMAGE_TAG_EFFECTIVE}\nNamespace: ${NAMESPACE}\nServices: backend, frontend, admin\nJob: ${JOB_NAME}\nURL: ${BUILD_URL}" \
+              --region ${AWS_REGION} || echo "WARN: SNS publish failed (topic may not exist yet)"
+          '''
+        }
+      }
+    }
+
     stage('Publish Build Metadata') {
       steps {
         writeFile file: 'image-tags.txt', text: """admin=${IMAGE_TAG_EFFECTIVE}\nbackend=${IMAGE_TAG_EFFECTIVE}\nfrontend=${IMAGE_TAG_EFFECTIVE}\n"""
@@ -338,6 +361,32 @@ pipeline {
   }
 
   post {
+    success {
+      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
+        sh '''#!/bin/bash
+          export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
+          export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
+          aws sns publish \
+            --topic-arn "${SNS_TOPIC_BUILDS}" \
+            --subject "BUILD SUCCESS: ShopNow #${BUILD_NUMBER}" \
+            --message "Build #${BUILD_NUMBER} succeeded.\nTag: ${IMAGE_TAG_EFFECTIVE}\nImages: backend, frontend, admin\nJob: ${JOB_NAME}\nURL: ${BUILD_URL}" \
+            --region ${AWS_REGION} || echo "WARN: SNS publish failed (topic may not exist yet)"
+        '''
+      }
+    }
+    failure {
+      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
+        sh '''#!/bin/bash
+          export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
+          export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
+          aws sns publish \
+            --topic-arn "${SNS_TOPIC_BUILDS}" \
+            --subject "BUILD FAILED: ShopNow #${BUILD_NUMBER}" \
+            --message "Build #${BUILD_NUMBER} FAILED.\nJob: ${JOB_NAME}\nCheck logs: ${BUILD_URL}console" \
+            --region ${AWS_REGION} || echo "WARN: SNS publish failed (topic may not exist yet)"
+        '''
+      }
+    }
     always {
       cleanWs()
     }
