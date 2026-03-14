@@ -68,12 +68,10 @@ pipeline {
           docker --version
 
           if ! command -v aws >/dev/null 2>&1; then
-            echo "aws CLI not found; installing..."
-            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-            python3 -c "import zipfile; zipfile.ZipFile('/tmp/awscliv2.zip').extractall('/tmp/aws-install')"
-            chmod +x /tmp/aws-install/aws/install
-            /tmp/aws-install/aws/install --install-dir "${WORKSPACE}/.ci-tools/aws-cli" --bin-dir "${TOOLS_DIR}" --update
-            rm -rf /tmp/awscliv2.zip /tmp/aws-install
+            echo "aws CLI not found; installing via pip3..."
+            pip3 install --quiet --target "${WORKSPACE}/.ci-tools/pip-packages" awscli
+            export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
+            ln -sf "${WORKSPACE}/.ci-tools/pip-packages/bin/aws" "${TOOLS_DIR}/aws"
           fi
 
           aws --version
@@ -94,6 +92,7 @@ pipeline {
           sh '''
             set -e
             export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
+            export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
 
             aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
@@ -132,6 +131,7 @@ pipeline {
           sh '''
             set -euxo pipefail
             export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
+            export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
             export DOCKER_CONFIG="${WORKSPACE}/.docker"
             mkdir -p "${DOCKER_CONFIG}"
 
