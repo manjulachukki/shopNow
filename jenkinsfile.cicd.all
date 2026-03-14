@@ -154,65 +154,61 @@ pipeline {
       }
     }
 
-    stage('Build & Push Images') {
-      parallel {
-        stage('Build Admin') {
-          steps {
-            dir('admin') {
-              retry(2) {
-                sh '''#!/bin/bash
-                  set -exo pipefail
-                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
-                  docker build --pull -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
+    stage('Build & Push Admin') {
+      steps {
+        dir('admin') {
+          retry(2) {
+            sh '''#!/bin/bash
+              set -exo pipefail
+              export DOCKER_CONFIG="${WORKSPACE}/.docker"
+              docker build --pull -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
-                  if [ "${PUSH_IMAGES}" = "true" ]; then
-                    docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE}
-                    docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
-                    docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
-                  fi
-                '''
-              }
-            }
+              if [ "${PUSH_IMAGES}" = "true" ]; then
+                docker push ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE}
+                docker tag ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+                docker push ${ECR_REGISTRY}/${ADMIN_REPO}:latest
+              fi
+            '''
           }
         }
+      }
+    }
 
-        stage('Build Backend') {
-          steps {
-            dir('backend') {
-              retry(2) {
-                sh '''#!/bin/bash
-                  set -exo pipefail
-                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
-                  docker build --pull -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+    stage('Build & Push Backend') {
+      steps {
+        dir('backend') {
+          retry(2) {
+            sh '''#!/bin/bash
+              set -exo pipefail
+              export DOCKER_CONFIG="${WORKSPACE}/.docker"
+              docker build --pull -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
-                  if [ "${PUSH_IMAGES}" = "true" ]; then
-                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE}
-                    docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
-                    docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
-                  fi
-                '''
-              }
-            }
+              if [ "${PUSH_IMAGES}" = "true" ]; then
+                docker push ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                docker tag ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+                docker push ${ECR_REGISTRY}/${BACKEND_REPO}:latest
+              fi
+            '''
           }
         }
+      }
+    }
 
-        stage('Build Frontend') {
-          steps {
-            dir('frontend') {
-              retry(2) {
-                sh '''#!/bin/bash
-                  set -exo pipefail
-                  export DOCKER_CONFIG="${WORKSPACE}/.docker"
-                  docker build --pull -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
+    stage('Build & Push Frontend') {
+      steps {
+        dir('frontend') {
+          retry(2) {
+            sh '''#!/bin/bash
+              set -exo pipefail
+              export DOCKER_CONFIG="${WORKSPACE}/.docker"
+              docker build --pull -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
-                  if [ "${PUSH_IMAGES}" = "true" ]; then
-                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE}
-                    docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
-                    docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
-                  fi
-                '''
-              }
-            }
+              if [ "${PUSH_IMAGES}" = "true" ]; then
+                docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE}
+                docker tag ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+                docker push ${ECR_REGISTRY}/${FRONTEND_REPO}:latest
+              fi
+            '''
           }
         }
       }
