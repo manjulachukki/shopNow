@@ -129,7 +129,7 @@ pipeline {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: params.AWS_CREDENTIALS_ID]]) {
           sh '''#!/bin/bash
-            set -euxo pipefail
+            set -exo pipefail
             export PATH="${WORKSPACE}/.ci-tools/bin:$PATH"
             export PYTHONPATH="${WORKSPACE}/.ci-tools/pip-packages:${PYTHONPATH:-}"
             export DOCKER_CONFIG="${WORKSPACE}/.docker"
@@ -162,7 +162,7 @@ pipeline {
             dir('admin') {
               retry(2) {
                 sh '''#!/bin/bash
-                  set -euxo pipefail
+                  set -exo pipefail
                   export DOCKER_CONFIG="${WORKSPACE}/.docker"
                   docker build --pull -t ${ECR_REGISTRY}/${ADMIN_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
@@ -182,7 +182,7 @@ pipeline {
             dir('backend') {
               retry(2) {
                 sh '''#!/bin/bash
-                  set -euxo pipefail
+                  set -exo pipefail
                   export DOCKER_CONFIG="${WORKSPACE}/.docker"
                   docker build --pull -t ${ECR_REGISTRY}/${BACKEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
@@ -202,7 +202,7 @@ pipeline {
             dir('frontend') {
               retry(2) {
                 sh '''#!/bin/bash
-                  set -euxo pipefail
+                  set -exo pipefail
                   export DOCKER_CONFIG="${WORKSPACE}/.docker"
                   docker build --pull -t ${ECR_REGISTRY}/${FRONTEND_REPO}:${IMAGE_TAG_EFFECTIVE} .
 
